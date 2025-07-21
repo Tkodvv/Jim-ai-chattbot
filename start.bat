@@ -2,32 +2,34 @@
 echo Starting Jim Discord Bot with PostgreSQL...
 echo.
 
-REM Check if Python 3.13.2 is available
-python3.13.2 --version >nul 2>&1
-if %errorlevel% neq 0 (
-    echo Python 3.13.2 not found. Trying python3.13...
-    python3.13 --version >nul 2>&1
-    if %errorlevel% neq 0 (
-        echo Python 3.13 not found. Trying python3...
-        python3 --version >nul 2>&1
-        if %errorlevel% neq 0 (
-            echo Python 3 not found. Trying python...
-            python --version >nul 2>&1
-            if %errorlevel% neq 0 (
-                echo ERROR: Python not found! Please install Python 3.13.2
-                pause
-                exit /b 1
-            ) else (
-                set PYTHON_CMD=python
-            )
-        ) else (
-            set PYTHON_CMD=python3
-        )
+REM Check for Python installation (Windows typically uses 'python' or 'py')
+python --version >nul 2>&1
+if %errorlevel% equ 0 (
+    set PYTHON_CMD=python
+    python --version | findstr "3.13" >nul 2>&1
+    if %errorlevel% equ 0 (
+        echo Found Python 3.13.x - Perfect!
     ) else (
-        set PYTHON_CMD=python3.13
+        echo Found Python but not 3.13.x - Will work but 3.13.2 is recommended
     )
 ) else (
-    set PYTHON_CMD=python3.13.2
+    REM Try py launcher (common on Windows)
+    py --version >nul 2>&1
+    if %errorlevel% equ 0 (
+        set PYTHON_CMD=py
+        py --version | findstr "3.13" >nul 2>&1
+        if %errorlevel% equ 0 (
+            echo Found Python 3.13.x via py launcher - Perfect!
+        ) else (
+            echo Found Python via py launcher but not 3.13.x - Will work but 3.13.2 is recommended
+        )
+    ) else (
+        echo ERROR: Python not found! 
+        echo Please install Python 3.13.2 from https://www.python.org/downloads/
+        echo Make sure to check "Add Python to PATH" during installation
+        pause
+        exit /b 1
+    )
 )
 
 echo Using %PYTHON_CMD%
