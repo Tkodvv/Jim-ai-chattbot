@@ -211,7 +211,15 @@ class DiscordBot(commands.Bot):
     @commands.command(name='ping')
     async def ping(self, ctx):
         """Simple ping command"""
-        await ctx.send("yo what's good! 🔥")
+        responses = [
+            "yo what's good! 🔥",
+            "pong, bitch! still alive",
+            "sup, you need something or just checking?",
+            "yeah I'm here, what's up",
+            "pong! ready to vibe or roast, your choice"
+        ]
+        import random
+        await ctx.send(random.choice(responses))
     
     @commands.command(name='forget')
     async def forget_user(self, ctx):
@@ -222,7 +230,15 @@ class DiscordBot(commands.Bot):
                 Conversation.query.filter_by(user_id=user_id_str).delete()
                 db.session.commit()
             
-            await ctx.send("aight bet, cleared your memory! fresh start fr 🧠✨")
+            responses = [
+                "aight bet, wiped your memory clean! fresh start fr 🧠✨",
+                "done, you're a stranger to me now lol",
+                "memory cleared! who tf are you again? 😏",
+                "fresh slate activated, we're starting over",
+                "boom, amnesia mode enabled"
+            ]
+            import random
+            await ctx.send(random.choice(responses))
         except Exception as e:
             logger.error(f"Error clearing user memory: {e}")
-            await ctx.send("my bad, couldn't clear that rn")
+            await ctx.send("nah couldn't wipe that shit, something's broken")

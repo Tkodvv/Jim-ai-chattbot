@@ -10,8 +10,8 @@ def home():
     """Home route to show bot status"""
     return jsonify({
         "status": "Jim Discord Bot is running! 🤖",
-        "message": "yo what's good, the bot is alive and vibing",
-        "version": "1.0.0"
+        "message": "yo what's good, Tkodv's slave is alive and ready to roast",
+        "version": "2.0.0 - Unfiltered Edition"
     })
 
 @app.route('/health')
@@ -25,13 +25,13 @@ def health():
         return jsonify({
             "status": "healthy",
             "database": "connected",
-            "message": "all systems go fr 🔥"
+            "message": "all systems go, ready to talk shit 🔥"
         })
     except Exception as e:
         return jsonify({
             "status": "unhealthy",
             "error": str(e),
-            "message": "something's not right chief"
+            "message": "shit's broken, working on it"
         }), 500
 
 @app.route('/stats')
@@ -45,19 +45,19 @@ def stats():
         return jsonify({
             "total_users": total_users,
             "total_conversations": total_conversations,
-            "message": "stats lookin good ngl"
+            "message": "stats lookin good, people actually talk to me lol"
         })
     except Exception as e:
         return jsonify({
             "error": str(e),
-            "message": "couldn't grab stats rn"
+            "message": "couldn't grab stats, servers being a bitch"
         }), 500
 
 @app.route('/ping')
 def ping():
     """Simple ping endpoint"""
     return jsonify({
-        "message": "pong! bot's still breathing 🏓"
+        "message": "pong! still alive and ready to cause chaos 🏓"
     })
 
 if __name__ == '__main__':

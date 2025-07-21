@@ -7,6 +7,7 @@ This repository contains a Discord bot named "Jim" that integrates with OpenAI's
 ## User Preferences
 
 Preferred communication style: Simple, everyday language.
+Bot personality: Unfiltered, edgy Gen Z - matches energy, talks back when people are rude, swears naturally, calls out BS.
 
 ## System Architecture
 
