@@ -6,8 +6,12 @@ from datetime import datetime, timedelta
 from typing import Dict, Set
 import discord
 from discord.ext import commands
+from dotenv import load_dotenv
 from models import db, Conversation
 from openai_client import generate_response, generate_image_dalle, search_google
+
+# Load environment variables from .env file
+load_dotenv()
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

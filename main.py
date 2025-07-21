@@ -1,8 +1,12 @@
 import os
 import asyncio
 import threading
+from dotenv import load_dotenv
 from simple_bot import bot
 from web_server import app
+
+# Load environment variables from .env file
+load_dotenv()
 
 def run_web_server():
     """Run Flask web server in a separate thread"""

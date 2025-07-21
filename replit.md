@@ -8,6 +8,8 @@ This repository contains a Discord bot named "Jim" that integrates with OpenAI's
 
 Preferred communication style: Simple, everyday language.
 Bot personality: Unfiltered, edgy Gen Z - matches energy, talks back when people are rude, swears naturally, calls out BS.
+Database: Local PostgreSQL at postgresql://postgres:1136@localhost:5432/jimbot
+Python version: Python 3.13 preferred
 
 ## System Architecture
 

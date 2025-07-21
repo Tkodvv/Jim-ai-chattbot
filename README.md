@@ -14,13 +14,23 @@ A complete Discord bot with AI personality, memory, search capabilities, and hum
 
 ## 📦 Installation
 
-### Prerequisites
-- Python 3.8+
+### Quick Start
+
+#### Windows (Python 3.13)
+1. Double-click `start.bat` to automatically install dependencies and run the bot
+
+#### Linux/Mac
+1. Run `./start.sh` to automatically install dependencies and run the bot
+
+### Manual Setup
+
+#### Prerequisites
+- Python 3.13 (recommended) or Python 3.8+
 - PostgreSQL database
 - Discord Bot Token
 - OpenAI API Key
 
-### Setup Steps
+#### Setup Steps
 
 1. **Clone or Download**
    ```bash
@@ -30,17 +40,29 @@ A complete Discord bot with AI personality, memory, search capabilities, and hum
 
 2. **Install Dependencies**
    ```bash
-   pip install -r requirements.txt
-   ```
-   
-   Or if using the complete bot file:
-   ```bash
-   pip install discord.py openai psycopg2-binary aiohttp python-dotenv langchain faiss-cpu flask
+   pip install -r requirements_download.txt
    ```
 
-3. **Environment Setup**
+3. **Database Setup**
+   Create your PostgreSQL database:
+   ```sql
+   CREATE DATABASE jimbot;
+   ```
+
+4. **Environment Setup**
+   Create a `.env` file with your configuration:
+   ```env
+   DATABASE_URL=postgresql://postgres:1136@localhost:5432/jimbot
+   DISCORD_TOKEN=your_discord_token_here
+   OPENAI_API_KEY=your_openai_api_key_here
+   GOOGLE_API_KEY=your_google_api_key_here
+   GOOGLE_CSE_ID=your_google_cse_id_here
+   FLASK_SECRET_KEY=your_secret_key_here
+   ```
+
+5. **Run the Bot**
    ```bash
-   cp .env.example .env
+   python main.py
    ```
    
    Edit `.env` file with your credentials:
