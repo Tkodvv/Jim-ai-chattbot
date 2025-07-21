@@ -16,17 +16,25 @@ A complete Discord bot with AI personality, memory, search capabilities, and hum
 
 ### Quick Start
 
-#### Windows (Python 3.13)
-1. Double-click `start.bat` to automatically install dependencies and run the bot
+#### Windows (Python 3.13.2)
+1. Double-click `start.bat` to automatically:
+   - Start PostgreSQL service
+   - Install dependencies 
+   - Test database connection
+   - Run the bot
 
 #### Linux/Mac
-1. Run `./start.sh` to automatically install dependencies and run the bot
+1. Run `./start.sh` to automatically:
+   - Start PostgreSQL service
+   - Install dependencies
+   - Test database connection  
+   - Run the bot
 
 ### Manual Setup
 
 #### Prerequisites
-- Python 3.13 (recommended) or Python 3.8+
-- PostgreSQL database
+- Python 3.13.2 (recommended) or Python 3.8+
+- PostgreSQL database (automatically started by start.bat/start.sh)
 - Discord Bot Token
 - OpenAI API Key
 
