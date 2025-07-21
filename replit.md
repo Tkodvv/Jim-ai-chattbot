@@ -2,7 +2,7 @@
 
 ## Overview
 
-This repository contains a Discord bot named "Jim" that integrates with OpenAI's GPT-4o model to provide AI-powered conversations with a Gen Z personality. The bot combines Discord.py for chat functionality with a Flask web server for health monitoring and statistics. It uses PostgreSQL for persistent conversation storage and includes memory features to maintain context across interactions.
+This repository contains a Discord bot named "Jim" that integrates with OpenAI's GPT-4o model to provide AI-powered conversations with a natural Gen Z personality. The bot combines Discord.py for chat functionality with a Flask web server for health monitoring and statistics. It uses PostgreSQL for persistent conversation storage and includes memory features to maintain context across interactions. Enhanced with human-like features including typing indicators, reply threading, and natural conversation delays.
 
 ## User Preferences
 
@@ -25,6 +25,8 @@ The application follows a hybrid architecture combining a Discord bot client wit
 - **Message Handling**: Processes incoming Discord messages with spam protection
 - **User Tracking**: Maintains interaction timestamps and processing state
 - **Database Integration**: Stores conversation history for context awareness
+- **Human-like Features**: Typing indicators, reply threading, natural delays (1-3 seconds)
+- **Reply System**: Uses Discord's reply feature for better conversation threading
 
 ### Web Server (`web_server.py`)
 - **Health Monitoring**: `/health` endpoint for system status checks

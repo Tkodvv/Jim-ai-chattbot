@@ -79,27 +79,34 @@ class DiscordBot(commands.Bot):
                 # Update interaction time
                 self.user_interactions[user_id] = current_time
                 
-                # Get or create user conversation memory
-                conversation_memory = await self.get_user_memory(user_id)
+                # Show typing indicator to make it more human-like
+                async with message.channel.typing():
+                    # Add natural delay to simulate human typing
+                    import random
+                    typing_delay = random.uniform(1.0, 3.0)  # 1-3 seconds
+                    await asyncio.sleep(typing_delay)
+                    
+                    # Get or create user conversation memory
+                    conversation_memory = await self.get_user_memory(user_id)
+                    
+                    # Generate response
+                    response = await generate_response(
+                        message.content, 
+                        message.author.name, 
+                        conversation_memory
+                    )
+                    
+                    # Update user memory with new interaction
+                    await self.update_user_memory(
+                        user_id, 
+                        message.content, 
+                        response,
+                        message.author.name
+                    )
                 
-                # Generate response
-                response = await generate_response(
-                    message.content, 
-                    message.author.name, 
-                    conversation_memory
-                )
-                
-                # Update user memory with new interaction
-                await self.update_user_memory(
-                    user_id, 
-                    message.content, 
-                    response,
-                    message.author.name
-                )
-                
-                # Send response
+                # Send response with reply indicator for better conversation flow
                 if response:
-                    await message.channel.send(response)
+                    await message.reply(response, mention_author=False)
                     
             except Exception as e:
                 logger.error(f"Error processing message: {e}")
@@ -159,13 +166,13 @@ class DiscordBot(commands.Bot):
                     db.session.add(username_record)
                 
                 # Store recent messages (keep last 10 exchanges)
+                import json
                 recent_messages = Conversation.query.filter_by(
                     user_id=user_id_str, key='recent_messages'
                 ).first()
                 
                 if recent_messages:
                     try:
-                        import json
                         messages = json.loads(recent_messages.value)
                     except:
                         messages = []
