@@ -149,6 +149,68 @@ async def generate_response(user_message: str, username: str, conversation_memor
         import random
         return random.choice(error_responses)
 
+async def generate_image_dalle(prompt: str):
+    """Generate an image using DALL-E 3"""
+    try:
+        response = openai.images.generate(
+            model="dall-e-3",
+            prompt=prompt,
+            size="1024x1024",
+            quality="standard",
+            n=1,
+        )
+        
+        logger.info(f"Generated image for prompt: {prompt}")
+        return {"url": response.data[0].url}
+        
+    except Exception as e:
+        logger.error(f"DALL-E image generation failed: {e}")
+        return None
+
+async def search_google(query: str, num_results: int = 5):
+    """Search using Google Custom Search API"""
+    try:
+        import aiohttp
+        import os
+        
+        api_key = os.getenv('GOOGLE_API_KEY')
+        cse_id = os.getenv('GOOGLE_CSE_ID')
+        
+        if not api_key or not cse_id:
+            logger.error("Google API credentials not found")
+            return []
+        
+        url = "https://www.googleapis.com/customsearch/v1"
+        params = {
+            'key': api_key,
+            'cx': cse_id,
+            'q': query,
+            'num': num_results
+        }
+        
+        async with aiohttp.ClientSession() as session:
+            async with session.get(url, params=params) as response:
+                if response.status == 200:
+                    data = await response.json()
+                    
+                    results = []
+                    for item in data.get('items', []):
+                        results.append({
+                            'title': item.get('title', ''),
+                            'link': item.get('link', ''),
+                            'snippet': item.get('snippet', '')
+                        })
+                    
+                    logger.info(f"Google search for '{query}' returned {len(results)} results")
+                    return results
+                else:
+                    logger.error(f"Google search failed with status: {response.status}")
+                    return []
+                    
+    except Exception as e:
+        logger.error(f"Google search failed: {e}")
+        return []
+
 async def test_openai_connection():
     """Test OpenAI API connection"""
     try:
