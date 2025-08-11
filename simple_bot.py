@@ -2,7 +2,6 @@ import os
 import asyncio
 import logging
 import random
-import base64
 from datetime import datetime, timedelta
 from typing import Dict, Set, List, Optional
 import discord
@@ -25,20 +24,16 @@ load_dotenv()
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-# ---- helpers for image detection/packing ----
-IMAGE_MIME_PREFIXES = ("image/",)
+# ---- helpers for image detection ----
 IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
 
-def _guess_mime_from_name(name: str) -> str:
-    low = name.lower()
-    if low.endswith(".png"): return "image/png"
-    if low.endswith(".jpg") or low.endswith(".jpeg"): return "image/jpeg"
-    if low.endswith(".webp"): return "image/webp"
-    if low.endswith(".gif"): return "image/gif"
-    if low.endswith(".bmp"): return "image/bmp"
-    return "application/octet-stream"
-
 class SimpleBotClass(commands.Bot):
+    # memory guardrails
+    MAX_USERS_TRACKED = 500            # cap size of the interaction map
+    INTERACTION_TTL_SECONDS = 3600     # prune entries older than 1h
+    MAX_USER_TEXT = 3000               # clamp text sent to OpenAI
+    MAX_RECENT_EXCHANGES = 6           # keep shorter convo context in DB
+
     def __init__(self):
         intents = discord.Intents.default()
         intents.message_content = True
@@ -72,31 +67,31 @@ class SimpleBotClass(commands.Bot):
         # List loaded commands
         logger.info(f"Loaded commands: {[cmd.name for cmd in self.commands]}")
 
-    # ---------- new: image extraction ----------
+        # light background janitor
+        async def _janitor():
+            while True:
+                await asyncio.sleep(300)  # every 5 min
+                try:
+                    self._prune_interactions()
+                except Exception:
+                    pass
+        self.loop.create_task(_janitor())
+
+    # ---------- image extraction (URL-only, zero-copy) ----------
     async def _collect_image_contents(self, message: discord.Message) -> List[dict]:
         """
         Collect images from attachments and embeds.
-        Returns a list of OpenAI 'content' blocks: [{"type":"image_url","image_url": "..."}]
-        For attachments we send data URLs (base64). For embeds we pass the remote URL directly.
+        Returns OpenAI content blocks:
+          [{"type":"image_url","image_url":{"url":"https://..."}}]
         """
         contents: List[dict] = []
 
-        # 1) Attachments
+        # 1) Attachments → use CDN URLs (no .read())
         for att in message.attachments:
-            # Some bots/users upload non-images; filter
-            ct = att.content_type or _guess_mime_from_name(att.filename or "")
-            if ct.startswith(IMAGE_MIME_PREFIXES):
-                try:
-                    data = await att.read()
-                    # Build data URL; default to filename-based mime when content_type missing
-                    mime = ct if ct.startswith("image/") else _guess_mime_from_name(att.filename or "")
-                    b64 = base64.b64encode(data).decode("utf-8")
-                    contents.append({
-                        "type": "image_url",
-                        "image_url": f"data:{mime};base64,{b64}"
-                    })
-                except Exception as e:
-                    logger.warning(f"Failed reading attachment {att.filename}: {e}")
+            ct = (att.content_type or "").lower()
+            name = (att.filename or "").lower()
+            if ct.startswith("image/") or name.endswith(IMAGE_EXTS):
+                contents.append({"type": "image_url", "image_url": {"url": att.url}})
 
         # 2) Embeds (Tenor/Giphy/regular links with images)
         for emb in message.embeds:
@@ -109,14 +104,27 @@ class SimpleBotClass(commands.Bot):
                 if emb.url:
                     url_candidates.append(emb.url)
 
-                for url in url_candidates:
-                    u = str(url)
-                    if any(u.lower().endswith(ext) for ext in IMAGE_EXTS):
-                        contents.append({"type": "image_url", "image_url": u})
+                for u in url_candidates:
+                    lu = u.lower()
+                    if lu.endswith(IMAGE_EXTS):
+                        contents.append({"type": "image_url", "image_url": {"url": u}})
             except Exception:
                 pass
 
         return contents
+
+    # ---------- light memory pruning ----------
+    def _prune_interactions(self):
+        now = datetime.utcnow()
+        # TTL prune
+        stale = [uid for uid, ts in self.user_interactions.items()
+                 if (now - ts).total_seconds() > self.INTERACTION_TTL_SECONDS]
+        for uid in stale:
+            self.user_interactions.pop(uid, None)
+        # size cap (drop oldest first)
+        if len(self.user_interactions) > self.MAX_USERS_TRACKED:
+            for uid in sorted(self.user_interactions, key=self.user_interactions.get)[:len(self.user_interactions)-self.MAX_USERS_TRACKED]:
+                self.user_interactions.pop(uid, None)
 
     async def on_message(self, message):
         """Handle incoming messages"""
@@ -131,17 +139,20 @@ class SimpleBotClass(commands.Bot):
         # Don't respond if user is currently being processed
         if message.author.id in self.processing_users:
             return
+
+        # prune house-keeping
+        self._prune_interactions()
         
         should_respond = False
         user_id = message.author.id
         current_time = datetime.utcnow()
 
-        # NEW: check for images/GIFs
+        # check for images/GIFs
         image_contents = await self._collect_image_contents(message)
         has_images = len(image_contents) > 0
         
         # Check if "jim" is mentioned (case insensitive)
-        if "jim" in message.content.lower():
+        if "jim" in (message.content or "").lower():
             should_respond = True
             logger.info(f"Jim mentioned by {message.author.name}")
         
@@ -176,16 +187,16 @@ class SimpleBotClass(commands.Bot):
                     
                     # Generate response
                     if has_images and HAS_VISION:
-                        # Prefer explicit user prompt if present; otherwise a default analysis request
-                        user_prompt = message.content.strip() or "Analyze these images/GIFs and describe what's going on."
+                        user_prompt = (message.content or "").strip() or "Analyze these images/GIFs and describe what's going on."
                         response = await generate_vision_response(
                             text=user_prompt,
-                            images=image_contents  # list of {"type":"image_url","image_url": ...}
+                            images=image_contents  # [{"type":"image_url","image_url":{"url":...}}, ...]
                         )
                     else:
-                        # Fallback to text-only
+                        # Clamp text size to keep tokens/memory sane
+                        text = (message.content or "")[:self.MAX_USER_TEXT]
                         response = await generate_response(
-                            message.content, 
+                            text, 
                             message.author.name, 
                             conversation_memory
                         )
@@ -288,9 +299,9 @@ class SimpleBotClass(commands.Bot):
                     'timestamp': datetime.utcnow().isoformat()
                 })
                 
-                # Keep only last 10 exchanges
-                if len(messages) > 10:
-                    messages = messages[-10:]
+                # Keep only last N exchanges (smaller context = lower RAM/tokens)
+                if len(messages) > self.MAX_RECENT_EXCHANGES:
+                    messages = messages[-self.MAX_RECENT_EXCHANGES:]
                 
                 recent_messages.value = json.dumps(messages)
                 
