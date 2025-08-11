@@ -297,6 +297,180 @@ async def search_cmd(ctx, *, query):
         logger.error(f"Error searching: {e}")
         await ctx.send("search broke, Google's probably down or some shit")
 
+# NEW MODERATION COMMANDS
+@commands.command(name='kick')
+@commands.has_permissions(kick_members=True)
+async def kick_cmd(ctx, member: discord.Member = None, *, reason="No reason provided"):
+    """Kick a member from the server"""
+    if member is None:
+        await ctx.send("yo you gotta mention someone to kick")
+        return
+    
+    if member == ctx.author:
+        await ctx.send("bruh you can't kick yourself lmao")
+        return
+    
+    if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
+        await ctx.send("nah you can't kick someone with equal/higher role than you")
+        return
+    
+    if member.top_role >= ctx.guild.me.top_role:
+        await ctx.send("can't kick that person, they got higher role than me")
+        return
+    
+    try:
+        await member.kick(reason=f"Kicked by {ctx.author}: {reason}")
+        embed = discord.Embed(
+            title="Member Kicked",
+            description=f"{member.mention} got yeeted from the server",
+            color=0xff4444
+        )
+        embed.add_field(name="Reason", value=reason, inline=False)
+        embed.add_field(name="Kicked by", value=ctx.author.mention, inline=True)
+        await ctx.send(embed=embed)
+        logger.info(f"{ctx.author} kicked {member} for: {reason}")
+    except discord.Forbidden:
+        await ctx.send("yo I don't have permission to kick that person")
+    except Exception as e:
+        await ctx.send(f"something went wrong: {e}")
+        logger.error(f"Error kicking {member}: {e}")
+
+@commands.command(name='timeout')
+@commands.has_permissions(moderate_members=True)
+async def timeout_cmd(ctx, member: discord.Member = None, duration: int = 10, *, reason="No reason provided"):
+    """Timeout a member (duration in minutes)"""
+    if member is None:
+        await ctx.send("yo you gotta mention someone to timeout")
+        return
+    
+    if member == ctx.author:
+        await ctx.send("bruh you can't timeout yourself")
+        return
+    
+    if member.top_role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
+        await ctx.send("nah you can't timeout someone with equal/higher role than you")
+        return
+    
+    if member.top_role >= ctx.guild.me.top_role:
+        await ctx.send("can't timeout that person, they got higher role than me")
+        return
+    
+    if duration > 40320:  # Discord's max timeout is 28 days (40320 minutes)
+        duration = 40320
+        await ctx.send("max timeout is 28 days, setting it to that")
+    
+    try:
+        timeout_until = datetime.utcnow() + timedelta(minutes=duration)
+        await member.timeout(timeout_until, reason=f"Timed out by {ctx.author}: {reason}")
+        
+        embed = discord.Embed(
+            title="Member Timed Out",
+            description=f"{member.mention} got muted for {duration} minutes",
+            color=0xffaa00
+        )
+        embed.add_field(name="Duration", value=f"{duration} minutes", inline=True)
+        embed.add_field(name="Reason", value=reason, inline=False)
+        embed.add_field(name="Timed out by", value=ctx.author.mention, inline=True)
+        await ctx.send(embed=embed)
+        logger.info(f"{ctx.author} timed out {member} for {duration} minutes: {reason}")
+    except discord.Forbidden:
+        await ctx.send("yo I don't have permission to timeout that person")
+    except Exception as e:
+        await ctx.send(f"something went wrong: {e}")
+        logger.error(f"Error timing out {member}: {e}")
+
+@commands.command(name='addrole')
+@commands.has_permissions(manage_roles=True)
+async def addrole_cmd(ctx, member: discord.Member = None, *, role_name=None):
+    """Add a role to a member"""
+    if member is None or role_name is None:
+        await ctx.send("usage: !addrole @member role_name")
+        return
+    
+    # Find the role (case insensitive)
+    role = discord.utils.get(ctx.guild.roles, name=role_name)
+    if role is None:
+        # Try partial match
+        role = discord.utils.find(lambda r: role_name.lower() in r.name.lower(), ctx.guild.roles)
+    
+    if role is None:
+        await ctx.send(f"couldn't find role '{role_name}'")
+        return
+    
+    if role >= ctx.guild.me.top_role:
+        await ctx.send("can't assign that role, it's higher than my role")
+        return
+    
+    if role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
+        await ctx.send("can't assign a role equal/higher than your own role")
+        return
+    
+    if role in member.roles:
+        await ctx.send(f"{member.mention} already has the {role.name} role")
+        return
+    
+    try:
+        await member.add_roles(role, reason=f"Role added by {ctx.author}")
+        embed = discord.Embed(
+            title="Role Added",
+            description=f"Gave {member.mention} the **{role.name}** role",
+            color=0x44ff44
+        )
+        embed.add_field(name="Added by", value=ctx.author.mention, inline=True)
+        await ctx.send(embed=embed)
+        logger.info(f"{ctx.author} added role {role.name} to {member}")
+    except discord.Forbidden:
+        await ctx.send("yo I don't have permission to manage roles")
+    except Exception as e:
+        await ctx.send(f"something went wrong: {e}")
+        logger.error(f"Error adding role {role.name} to {member}: {e}")
+
+@commands.command(name='removerole')
+@commands.has_permissions(manage_roles=True)
+async def removerole_cmd(ctx, member: discord.Member = None, *, role_name=None):
+    """Remove a role from a member"""
+    if member is None or role_name is None:
+        await ctx.send("usage: !removerole @member role_name")
+        return
+    
+    # Find the role (case insensitive)
+    role = discord.utils.get(ctx.guild.roles, name=role_name)
+    if role is None:
+        # Try partial match
+        role = discord.utils.find(lambda r: role_name.lower() in r.name.lower(), ctx.guild.roles)
+    
+    if role is None:
+        await ctx.send(f"couldn't find role '{role_name}'")
+        return
+    
+    if role >= ctx.guild.me.top_role:
+        await ctx.send("can't remove that role, it's higher than my role")
+        return
+    
+    if role >= ctx.author.top_role and ctx.author != ctx.guild.owner:
+        await ctx.send("can't remove a role equal/higher than your own role")
+        return
+    
+    if role not in member.roles:
+        await ctx.send(f"{member.mention} doesn't have the {role.name} role")
+        return
+    
+    try:
+        await member.remove_roles(role, reason=f"Role removed by {ctx.author}")
+        embed = discord.Embed(
+            title="Role Removed",
+            description=f"Removed **{role.name}** role from {member.mention}",
+            color=0xff4444
+        )
+        embed.add_field(name="Removed by", value=ctx.author.mention, inline=True)
+        await ctx.send(embed=embed)
+        logger.info(f"{ctx.author} removed role {role.name} from {member}")
+    except discord.Forbidden:
+        await ctx.send("yo I don't have permission to manage roles")
+    except Exception as e:
+        await ctx.send(f"something went wrong: {e}")
+        logger.error(f"Error removing role {role.name} from {member}: {e}")
+
 @commands.command(name='jimhelp')
 async def help_cmd(ctx):
     """Show available commands"""
@@ -309,14 +483,38 @@ async def help_cmd(ctx):
     embed.add_field(name="!ping", value="Check if I'm alive and ready to roast", inline=False)
     embed.add_field(name="!image <prompt>", value="Generate an image with DALL-E 3", inline=False)
     embed.add_field(name="!search <query>", value="Search the web for anything", inline=False)
+    embed.add_field(name="!kick @member [reason]", value="Kick a member from the server", inline=False)
+    embed.add_field(name="!timeout @member [minutes] [reason]", value="Timeout a member (default 10 min)", inline=False)
+    embed.add_field(name="!addrole @member <role>", value="Add a role to a member", inline=False)
+    embed.add_field(name="!removerole @member <role>", value="Remove a role from a member", inline=False)
     embed.add_field(name="!jimhelp", value="Show this help message", inline=False)
     embed.set_footer(text="Just say 'jim' in any message to chat with me!")
     
     await ctx.send(embed=embed)
+
+# Error handlers for moderation commands
+@kick_cmd.error
+@timeout_cmd.error
+@addrole_cmd.error
+@removerole_cmd.error
+async def moderation_error(ctx, error):
+    if isinstance(error, commands.MissingPermissions):
+        await ctx.send("yo you don't have permission to use that command")
+    elif isinstance(error, commands.BadArgument):
+        await ctx.send("couldn't find that user in the server")
+    elif isinstance(error, commands.MemberNotFound):
+        await ctx.send("user not found in this server")
+    else:
+        await ctx.send(f"something went wrong: {error}")
+        logger.error(f"Command error: {error}")
 
 # Create bot instance and add commands
 bot = SimpleBotClass()
 bot.add_command(ping_cmd)
 bot.add_command(image_cmd)
 bot.add_command(search_cmd)
+bot.add_command(kick_cmd)
+bot.add_command(timeout_cmd)
+bot.add_command(addrole_cmd)
+bot.add_command(removerole_cmd)
 bot.add_command(help_cmd)

@@ -4,6 +4,7 @@ Jim - Advanced Discord AI Chatbot
 A complete Discord bot with memory, search capabilities, and Gen Z personality
 """
 
+from memory_manager import DatabaseManager
 import os
 import asyncio
 import logging
@@ -108,6 +109,54 @@ class DatabaseManager:
             return {}
     
     def update_user_memory(self, user_id: str, key: str, value: str):
+        """Update user's conversation memory and log full chat history"""
+        try:
+            conn = psycopg2.connect(self.database_url)
+            cursor = conn.cursor()
+
+            # Store/update key-value pair in conversations
+            cursor.execute("""
+                INSERT INTO conversations (user_id, key, value, updated_at)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id, key)
+                DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+            """, (user_id, key, value))
+
+            # Log every message into chat_history
+            cursor.execute("""
+                INSERT INTO chat_history (user_id, message, timestamp)
+                VALUES (%s, %s, CURRENT_TIMESTAMP)
+            """, (user_id, value))
+
+            conn.commit()
+            conn.close()
+
+        except Exception as e:
+            logger.error(f"Error updating user memory: {e}")
+        """Update user's conversation memory and log full chat history"""
+        try:
+            conn = psycopg2.connect(self.database_url)
+            cursor = conn.cursor()
+
+            # Store/update key-value pair in conversations
+            cursor.execute("""
+                INSERT INTO conversations (user_id, key, value, updated_at)
+                VALUES (%s, %s, %s, CURRENT_TIMESTAMP)
+                ON CONFLICT (user_id, key)
+                DO UPDATE SET value = EXCLUDED.value, updated_at = CURRENT_TIMESTAMP
+            """, (user_id, key, value))
+
+            # Additionally log every message separately
+            cursor.execute("""
+                INSERT INTO conversations (user_id, key, value)
+                VALUES (%s, %s, %s)
+            """, (user_id, f"message_{datetime.utcnow().isoformat()}", value))
+
+            conn.commit()
+            conn.close()
+
+        except Exception as e:
+            logger.error(f"Error updating user memory: {e}")
         """Update user's conversation memory"""
         try:
             conn = psycopg2.connect(self.database_url)
@@ -244,7 +293,7 @@ RESPONSE GUIDELINES:
                 model="gpt-4o",
                 messages=messages,
                 max_tokens=250,
-                temperature=0.8,
+                temperature=0.9,
                 presence_penalty=0.1,
                 frequency_penalty=0.1
             )
@@ -383,6 +432,14 @@ class JimBot(commands.Bot):
         """Process and respond to user message"""
         user_id = str(message.author.id)
         self.processing_users.add(message.author.id)
+
+        try:
+            # Save incoming message into conversations table
+            self.db.update_user_memory(user_id, 'last_message', message.content)
+
+        """Process and respond to user message"""
+        user_id = str(message.author.id)
+        self.processing_users.add(message.author.id)
         
         try:
             # Update interaction time
@@ -494,6 +551,30 @@ class JimBot(commands.Bot):
             logger.error(f"Error updating conversation memory: {e}")
     
     # Bot Commands
+    @commands.command(name='say')
+    async def say(self, ctx, *, message):
+        """Make the bot say something (owner only)"""
+        if ctx.author.id != 364263559263158274:
+            await ctx.send("nah you ain't got the clearance for that")
+            return
+        await ctx.message.delete()
+        await ctx.send(message)
+
+    @commands.command(name='userinfo')
+    async def userinfo(self, ctx):
+        """Show information about the user"""
+        user = ctx.author
+        embed = discord.Embed(title="User Info", color=0x00ffcc)
+        embed.set_thumbnail(url=user.avatar.url if user.avatar else user.default_avatar.url)
+        embed.add_field(name="Username", value=str(user), inline=True)
+        embed.add_field(name="ID", value=user.id, inline=True)
+        embed.add_field(name="Joined Discord", value=user.created_at.strftime('%Y-%m-%d'), inline=True)
+        embed.add_field(name="Joined Server", value=user.joined_at.strftime('%Y-%m-%d') if user.joined_at else "N/A", inline=True)
+        embed.set_footer(text="Tkodv's favorite user fr")
+
+        await ctx.send(embed=embed)
+
+
     @commands.command(name='ping')
     async def ping(self, ctx):
         """Ping command"""
@@ -623,6 +704,43 @@ class JimBot(commands.Bot):
         
         await ctx.send(embed=embed)
     
+    @commands.command(name='history')
+    async def show_history(self, ctx):
+        """Show full chat history for authorized user only"""
+        if str(ctx.author.id) != "364263559263158274":
+            await ctx.send("nah you ain't allowed to see that 😤")
+            return
+
+        try:
+            conn = psycopg2.connect(self.db.database_url)
+            cursor = conn.cursor()
+
+            cursor.execute("""
+                SELECT message, timestamp FROM chat_history
+                WHERE user_id = %s
+                ORDER BY timestamp DESC LIMIT 10
+            """, (str(ctx.author.id),))
+
+            records = cursor.fetchall()
+            conn.close()
+
+            if not records:
+                await ctx.send("you ain't said nothin' yet 💀")
+                return
+
+            history_text = "**Your Last 10 Messages:**
+"
+            for msg, ts in records:
+                history_text += f"- `{ts.strftime('%Y-%m-%d %H:%M:%S')}`: {msg}
+"
+
+            await ctx.send(history_text)
+
+        except Exception as e:
+            logger.error(f"Error fetching chat history: {e}")
+            await ctx.send("bruh I couldn't pull that up")
+
+
     @commands.command(name='stats')
     async def stats(self, ctx):
         """Show bot statistics"""
@@ -704,6 +822,16 @@ async def main():
         return
     
     try:
+        
+                        bot.add_command(bot.userinfo)
+        bot.add_command(bot.ping)
+        bot.add_command(bot.forget_user)
+        bot.add_command(bot.image)
+        bot.add_command(bot.search_web)
+        bot.add_command(bot.help_command)
+        bot.add_command(bot.show_history)
+        bot.add_command(bot.stats)
+
         await bot.start(token)
     except Exception as e:
         logger.error(f"Error starting bot: {e}")

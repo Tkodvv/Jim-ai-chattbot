@@ -1,0 +1,422 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>WOLF‑PRO v2 — No‑Speech Fix + Mic Selector</title>
+<style>
+/* ... keep all your styles unchanged ... */
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div class="logo">🐺</div>
+    <div>
+      <h1>WOLF‑PRO v2 — Real‑Time Werewolf (Raspy Blues)</h1>
+      <small>No‑speech auto‑retry • Hold‑to‑talk • Backoff • Mic selector</small>
+    </div>
+  </header>
+  <section class="stage panel">
+    <canvas id="wolf" width="1000" height="1000"></canvas>
+    <div class="hud">
+      <div class="chip" id="chipRec"><button id="btnMic">🎤 Start Listening</button><span id="recStatus">idle</span></div>
+      <div class="chip"><label for="micSelect">🎙️ Mic:</label><select id="micSelect"></select></div>
+      <div class="chip" id="chipPTT"><button id="btnPTT">🎙️ Push‑to‑Talk (G)</button><span id="pttStatus">off</span></div>
+      <div class="chip" id="chipAngry" aria-pressed="false"><button id="btnAngry">😤 Anger: Off</button></div>
+      <div class="chip" id="chipMute" aria-pressed="false"><button id="btnMute">🔈 Voice: On</button></div>
+    </div>
+  </section>
+  <!-- keep the rest of sections the same -->
+</div>
+<script>
+(async()=>{
+  const micSelect=document.getElementById('micSelect');
+  // Populate microphone devices
+  if(navigator.mediaDevices && navigator.mediaDevices.enumerateDevices){
+    try{
+      const devices=await navigator.mediaDevices.enumerateDevices();
+      const mics=devices.filter(d=>d.kind==='audioinput');
+      mics.forEach((m,i)=>{
+        const opt=document.createElement('option');
+        opt.value=m.deviceId;
+        opt.textContent=m.label || `Microphone ${i+1}`;
+        micSelect.appendChild(opt);
+      });
+    }catch(e){console.warn('Mic list error',e)}
+  }
+
+  let recognition=null, recognizing=false, autoListen=false, mute=false;
+  const btnMic=document.getElementById('btnMic');
+  const recStatus=document.getElementById('recStatus');
+  function setupRecognition(){
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+    if(!SR){console.log('SpeechRecognition not supported'); return;}
+    recognition=new SR();
+    recognition.lang='en-US';
+    recognition.interimResults=false;
+    recognition.continuous=true;
+    recognition.onresult=(e)=>{
+      for(let i=e.resultIndex;i<e.results.length;i++){
+        if(e.results[i].isFinal){
+          const said=e.results[i][0].transcript.trim();
+          console.log('You:',said);
+        }
+      }
+    };
+    recognition.onstart=()=>{recognizing=true;recStatus.textContent='listening…'};
+    recognition.onend=()=>{recognizing=false;recStatus.textContent='idle'};
+    recognition.onerror=(e)=>{console.log('Speech recognition error:',e.error)};
+  }
+  btnMic.addEventListener('click',async()=>{
+    if(!recognition) setupRecognition();
+    if(!autoListen){
+      autoListen=true;
+      // Request specific mic
+      try{
+        await navigator.mediaDevices.getUserMedia({audio:{deviceId:micSelect.value?{exact:micSelect.value}:undefined}});
+        recognition.start();
+        btnMic.textContent='🛑 Stop Listening';
+      }catch(err){console.error('Mic access error',err)}
+    }else{
+      autoListen=false;
+      recognition.stop();
+      btnMic.textContent='🎤 Start Listening';
+    }
+  });
+})();
+</script>
+</body>
+</html>
+
+            <option value="roast">Roast</option>
+            <option value="smooth">Ladies’ Man</option>
+            <option value="wise">Smart / Facts</option>
+            <option value="baked">Chill 🍃</option>
+          </select>
+        </div>
+        <div id="log"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Visual Tuning</h2>
+      <div class="body">
+        <div class="grid3">
+          <div class="toggle"><label>Eye Glow</label><input id="glow" type="range" min="0" max="1" value="0.35" step="0.01"></div>
+          <div class="toggle"><label>Fang Length</label><input id="fang" type="range" min="0.8" max="1.8" value="1.2" step="0.01"></div>
+          <div class="toggle"><label>Snarl Depth</label><input id="snarl" type="range" min="0" max="1" value="0.25" step="0.01"></div>
+        </div>
+        <div class="controls">
+          <button id="btnMoon">Toggle Moonlight</button>
+          <button id="btnDrool">Toggle Drool</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <h2>Kick/Ban Scratcher</h2>
+      <div class="body">
+        <div class="controls">
+          <input id="fileAv" type="file" accept="image/*" multiple />
+          <button id="btnDemoAv">Add Demo Avatars</button>
+        </div>
+        <div class="avatars" id="avatars"></div>
+        <small>Wire these buttons to your moderation events and call <code>scratchIcon('kick'|'ban')</code>.</small>
+      </div>
+    </section>
+  </div>
+
+<script>
+(()=>{
+  const canvas = document.getElementById('wolf');
+  const ctx = canvas.getContext('2d');
+  const state = {
+    t:0, talk:0, mouth:0, blink:0, lookX:0, lookY:0, angry:false, baked:false, mute:false,
+    eyeGlow:0.35, fangScale:1.2, snarl:0.25, moon:true, drool:false
+  };
+  const sliders={
+    pitch: document.getElementById('pitch'), rate: document.getElementById('rate'), look: document.getElementById('look'),
+    glow: document.getElementById('glow'), fang: document.getElementById('fang'), snarl: document.getElementById('snarl')
+  };
+  sliders.glow.addEventListener('input',()=> state.eyeGlow=parseFloat(sliders.glow.value));
+  sliders.fang.addEventListener('input',()=> state.fangScale=parseFloat(sliders.fang.value));
+  sliders.snarl.addEventListener('input',()=> state.snarl=parseFloat(sliders.snarl.value));
+
+  // Pointer head‑tracking
+  canvas.addEventListener('pointermove', (e)=>{
+    const r = canvas.getBoundingClientRect();
+    const x = (e.clientX - r.left)/r.width * 2 - 1;
+    const y = (e.clientY - r.top)/r.height * 2 - 1;
+    const s = parseFloat(sliders.look.value||1);
+    state.lookX = x*s; state.lookY = y*s;
+  });
+
+  // Simple value noise for fur breakup
+  const perm = new Uint8Array(512); for(let i=0;i<512;i++) perm[i]=Math.random()*256|0;
+  function vnoise(x,y){
+    const xi=x|0, yi=y|0; const xf=x-xi, yf=y-yi;
+    const r=(a,b)=>((perm[(a+perm[b&255])&255])/255);
+    const v00=r(xi,yi), v10=r(xi+1,yi), v01=r(xi,yi+1), v11=r(xi+1,yi+1);
+    const u=(t)=>t*t*(3-2*t);
+    return (v00*(1-u(xf)) + v10*u(xf))*(1-u(yf)) + (v01*(1-u(xf)) + v11*u(xf))*u(yf);
+  }
+
+  function lerp(a,b,t){return a+(b-a)*t}
+  function clamp(x,a,b){return Math.max(a,Math.min(b,x))}
+
+  function draw(){
+    const w=canvas.width, h=canvas.height; ctx.clearRect(0,0,w,h);
+    // moon/backdrop
+    if(state.moon){
+      const mg=ctx.createRadialGradient(w*0.18,h*0.18,20,w*0.18,h*0.18,h*0.46);
+      mg.addColorStop(0,'rgba(200,220,255,.12)'); mg.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=mg; ctx.beginPath(); ctx.arc(w*0.18,h*0.18,h*0.46,0,Math.PI*2); ctx.fill();
+    }
+
+    ctx.save();
+    // subtle parallax
+    ctx.translate(w*0.5 + state.lookX*18, h*0.58 + state.lookY*10);
+
+    // Head silhouette (more realistic proportions)
+    const tiltX = state.lookX*8, tiltY=state.lookY*6;
+    ctx.save(); ctx.rotate(tiltX*Math.PI/180);
+    // base shape
+    ctx.beginPath();
+    ctx.moveTo(-320,-140);
+    ctx.quadraticCurveTo(-420,-280,-260,-330); // left ear outer
+    ctx.quadraticCurveTo(-150,-360,-110,-290); // left ear tip
+    ctx.quadraticCurveTo(-80,-240,-40,-220);   // left temple
+    ctx.quadraticCurveTo(0,-260,40,-220);      // brow
+    ctx.quadraticCurveTo(80,-240,110,-290);    // right ear tip
+    ctx.quadraticCurveTo(150,-360,260,-330);   // right ear outer
+    ctx.quadraticCurveTo(420,-280,320,-140);   // right cheek start
+    ctx.quadraticCurveTo(260, 40,   0, 160);   // jawline
+    ctx.quadraticCurveTo(-260,40,-320,-140);
+    const grad=ctx.createLinearGradient(0,-360,0,220);
+    grad.addColorStop(0,'#1a2436'); grad.addColorStop(0.5,'#0f1625'); grad.addColorStop(1,'#0a111c');
+    ctx.fillStyle=grad; ctx.strokeStyle='#0b1422'; ctx.lineWidth=6; ctx.fill(); ctx.stroke();
+
+    // Fur strokes (directional, noise‑modulated)
+    ctx.lineWidth=1.5; ctx.globalAlpha=0.65; ctx.strokeStyle='rgba(180,200,230,.08)';
+    for(let i=0;i<1400;i++){
+      const a=Math.random()*Math.PI*2; const r=220+vnoise(i*1.7, i*3.1)*40;
+      const x=Math.cos(a)*r, y=Math.sin(a)*r*0.8+20;
+      if(y<-280||y>180) continue;
+      const nx=lerp(x, x*0.9 + (state.lookX*12), 0.2), ny=y;
+      ctx.beginPath(); ctx.moveTo(nx,ny);
+      ctx.lineTo(nx+Math.cos(a)*6, ny+Math.sin(a)*6);
+      ctx.stroke();
+    }
+    ctx.globalAlpha=1;
+
+    // Eyes
+    const eyeGlow = clamp(state.eyeGlow + (state.angry?0.5:0), 0, 1);
+    const eyeOpen = 16 - (Math.sin(state.t*2.4+2)*4 + (state.angry?2:0));
+    const eyeY=-90+tiltY*0.5; const eyeDX = 120+state.snarl*6;
+    function eye(x){
+      ctx.save(); ctx.translate(x,eyeY);
+      const g=ctx.createRadialGradient(0,0,4,0,0,40);
+      g.addColorStop(0,`rgba(255,60,60,${eyeGlow*.75})`); g.addColorStop(1,'rgba(0,0,0,0)');
+      ctx.fillStyle=g; ctx.beginPath(); ctx.arc(0,0,40,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#eff6ff'; ctx.beginPath(); ctx.ellipse(0,0,38,eyeOpen,0,0,Math.PI*2); ctx.fill();
+      const iris=`rgba(${Math.floor(120+eyeGlow*135)},${Math.floor(140-eyeGlow*60)},${Math.floor(255-eyeGlow*195)},1)`;
+      ctx.fillStyle=iris; ctx.beginPath(); ctx.arc(4+state.lookX*6,0+state.lookY*3,14,0,Math.PI*2); ctx.fill();
+      ctx.fillStyle='#0a0a0a'; ctx.beginPath(); ctx.arc(6+state.lookX*6,0+state.lookY*3,7,0,Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+    eye(-eyeDX); eye(eyeDX);
+
+    // Snout & nose
+    ctx.fillStyle='#0b1322'; ctx.beginPath(); ctx.moveTo(-90,-10); ctx.quadraticCurveTo(0,-50,90,-10); ctx.quadraticCurveTo(0,12,-90,-10); ctx.fill();
+    ctx.fillStyle='#080c15'; ctx.beginPath(); ctx.ellipse(0,-26,28,18,0,0,Math.PI*2); ctx.fill();
+
+    // Mouth & fangs
+    const m = state.mouth;
+    const snarlUp = state.snarl*30 + (state.angry?10:0);
+    ctx.fillStyle='#0a0d14';
+    ctx.beginPath();
+    ctx.moveTo(-190,40-snarlUp);
+    ctx.quadraticCurveTo(-40, 70 + m*90, 0, 74 + m*130);
+    ctx.quadraticCurveTo( 40, 70 + m*90, 190, 40-snarlUp);
+    ctx.quadraticCurveTo( 10, 95 + m*40, -10, 95 + m*40);
+    ctx.closePath(); ctx.fill();
+
+    // Tongue (baked only)
+    if(state.baked){ ctx.fillStyle='#c35a6a'; ctx.beginPath(); ctx.ellipse(0, 112+m*36, 44, 22+m*18, 0, 0, Math.PI*2); ctx.fill(); }
+
+    // Fangs
+    ctx.fillStyle='#f2fbff';
+    for(let i=-5;i<=5;i++){
+      const x=i*26; const y=66 + Math.abs(i)*2 - snarlUp*0.2;
+      const scale = (i===-5||i===5)?1.5:1.0; // canines
+      const f = 28*scale*state.fangScale;
+      ctx.beginPath(); ctx.moveTo(x, y);
+      ctx.lineTo(x+10, y+f);
+      ctx.lineTo(x-10, y+f);
+      ctx.closePath(); ctx.fill();
+    }
+
+    // Drool
+    if(state.drool && Math.random()<0.6){
+      ctx.strokeStyle='rgba(180,220,255,.55)'; ctx.lineWidth=2; ctx.beginPath();
+      ctx.moveTo(-8, 96+m*40); ctx.quadraticCurveTo(-6, 120+m*60, -10, 146+m*80); ctx.stroke();
+    }
+
+    // Inner ears
+    ctx.fillStyle='#182236';
+    ctx.beginPath(); ctx.moveTo(-170,-300); ctx.quadraticCurveTo(-130,-250,-150,-215); ctx.quadraticCurveTo(-200,-250,-170,-300); ctx.fill();
+    ctx.beginPath(); ctx.moveTo(170,-300); ctx.quadraticCurveTo(130,-250,150,-215); ctx.quadraticCurveTo(200,-250,170,-300); ctx.fill();
+
+    ctx.restore();
+
+    // Talking halo
+    if(state.talk>0){
+      const gg=ctx.createRadialGradient(w*0.5+state.lookX*18,h*0.58+state.lookY*10,60,w*0.5,h*0.58,240);
+      gg.addColorStop(0,'rgba(120,200,255,.06)'); gg.addColorStop(1,'rgba(120,200,255,0)');
+      ctx.fillStyle=gg; ctx.beginPath(); ctx.arc(w*0.5,h*0.58,260,0,Math.PI*2); ctx.fill();
+    }
+
+    ctx.restore();
+  }
+
+  function animate(){
+    state.t+=0.016;
+    state.mouth = lerp(state.mouth, state.talk>0?0.85:0.06, 0.12);
+    state.blink += 0.016; if(state.blink>Math.random()*6+2) state.blink=0; // (visual handled via eyeOpen jitter)
+    draw(); requestAnimationFrame(animate);
+  }
+  animate();
+
+  // ===== Audio: Growl + Raspy Overlay =====
+  let actx, raspGain=null, raspOscs=[];
+  function ensureAC(){ actx = actx || new (window.AudioContext||window.webkitAudioContext)(); return actx; }
+  function growl(ms=850){
+    try{
+      ensureAC();
+      const osc = actx.createOscillator();
+      const shaper = actx.createWaveShaper();
+      const gain = actx.createGain(); gain.gain.value=0.0001;
+      // waveshaper for grit
+      const c = new Float32Array(256); for(let i=0;i<256;i++){ const x=i/255*2-1; c[i]=Math.tanh(3*x); } shaper.curve=c; shaper.oversample='4x';
+      osc.type='sawtooth'; osc.frequency.value=68+Math.random()*16; osc.connect(shaper); shaper.connect(gain); gain.connect(actx.destination);
+      const now=actx.currentTime; osc.start(now); gain.gain.exponentialRampToValueAtTime(0.28, now+0.05);
+      gain.gain.exponentialRampToValueAtTime(0.001, now+ms/1000); osc.stop(now+ms/1000);
+    }catch(e){ log('sys','Growl failed: '+e.message); }
+  }
+  function raspOverlayStart(){
+    try{
+      ensureAC();
+      raspGain = actx.createGain(); raspGain.gain.value=0.05; raspGain.connect(actx.destination);
+      // Two detuned oscillators + noise for gravel
+      const o1=actx.createOscillator(), o2=actx.createOscillator();
+      o1.type='square'; o2.type='square'; o1.frequency.value=85; o2.frequency.value=90;
+      const g1=actx.createGain(), g2=actx.createGain(); g1.gain.value=0.05; g2.gain.value=0.05;
+      o1.connect(g1).connect(raspGain); o2.connect(g2).connect(raspGain);
+      const nbuf=actx.createBuffer(1, actx.sampleRate*2, actx.sampleRate); const d=nbuf.getChannelData(0); for(let i=0;i<d.length;i++) d[i]=Math.random()*2-1;
+      const noise=actx.createBufferSource(); noise.buffer=nbuf; noise.loop=true;
+      const bp=actx.createBiquadFilter(); bp.type='bandpass'; bp.frequency.value=140; bp.Q.value=5; const gn=actx.createGain(); gn.gain.value=0.02;
+      noise.connect(bp).connect(gn).connect(raspGain);
+      const now=actx.currentTime; o1.start(now); o2.start(now); noise.start(now);
+      raspOscs=[o1,o2,noise];
+    }catch(e){ log('sys','Rasp overlay failed: '+e.message); }
+  }
+  function raspOverlayStop(){ try{ if(!actx||!raspGain) return; const now=actx.currentTime; raspGain.gain.exponentialRampToValueAtTime(0.0001, now+0.08); setTimeout(()=>{raspOscs.forEach(o=>{try{o.stop()}catch{}}); raspOscs=[];},120);}catch{} }
+
+  // ===== Speech =====
+  const synth = window.speechSynthesis; let voice=null;
+  function pickVoice(){ const v=synth.getVoices(); voice = v.find(x=>/en-US/i.test(x.lang)&&/male|baritone|david|guy|mike/i.test(x.name)) || v.find(x=>/en-US/i.test(x.lang)) || v[0] || null; }
+  pickVoice(); if(synth) synth.onvoiceschanged=pickVoice;
+
+  const logEl=document.getElementById('log');
+  function log(who,text){ const d=document.createElement('div'); d.className=who; d.textContent=(who==='me'?'You: ':'Wolf: ')+text; logEl.appendChild(d); logEl.scrollTop=logEl.scrollHeight; }
+
+  function speak(text){
+    if(state.mute||!synth){ log('sys','Speech synthesis unsupported.'); return; }
+    const u=new SpeechSynthesisUtterance(text);
+    u.voice=voice; u.pitch=parseFloat(sliders.pitch.value||0.5); u.rate=parseFloat(sliders.rate.value||0.88); u.volume=1;
+    u.onstart=()=>{ state.talk=1; raspOverlayStart(); };
+    u.onend=()=>{ state.talk=0; raspOverlayStop(); };
+    u.onboundary=()=>{ state.talk=1; setTimeout(()=>state.talk=0,110); };
+    synth.speak(u);
+  }
+
+  // Recognition
+  const btnMic=document.getElementById('btnMic'); const recStatus=document.getElementById('recStatus');
+  let recognition, recognizing=false;
+  try{
+    const SR=window.SpeechRecognition||window.webkitSpeechRecognition; if(SR){
+      recognition=new SR(); recognition.lang='en-US'; recognition.interimResults=false; recognition.continuous=true;
+      recognition.onresult=(e)=>{ for(let i=e.resultIndex;i<e.results.length;i++){ if(e.results[i].isFinal){ const said=e.results[i][0].transcript.trim(); log('me',said); react(said); } } };
+      recognition.onstart=()=>{ recognizing=true; recStatus.textContent='listening…'; btnMic.textContent='🛑 Stop Listening'; };
+      recognition.onend=()=>{ recognizing=false; recStatus.textContent='idle'; btnMic.textContent='🎤 Start Listening'; };
+      recognition.onerror=(e)=>log('sys','Speech recognition error: '+e.error);
+    } else { log('sys','No SpeechRecognition in this browser. Use typed text.'); btnMic.disabled=true; }
+  }catch(err){ log('sys','Speech recognition init failed: '+err.message); }
+  btnMic?.addEventListener('click',()=>{ if(!recognition) return; if(!recognizing) recognition.start(); else recognition.stop(); });
+
+  // UI toggles
+  function setPressed(el, on){ el.setAttribute('aria-pressed', String(!!on)); }
+  document.getElementById('btnBaked').addEventListener('click',()=>{ state.baked=!state.baked; setPressed(document.getElementById('chipBaked'), state.baked); log('wolf', state.baked? 'Easy now… smooth nights and slow jams.':'Focus mode.'); });
+  document.getElementById('btnAngry').addEventListener('click',()=>{ state.angry=!state.angry; setPressed(document.getElementById('chipAngry'), state.angry); if(state.angry){ growl(); log('wolf','Careful. You are howling up the wrong tree.'); }});
+  document.getElementById('btnMute').addEventListener('click',()=>{ state.mute=!state.mute; setPressed(document.getElementById('chipMute'), state.mute); document.getElementById('btnMute').textContent = state.mute? '🔇 Voice: Off' : '🔈 Voice: On'; });
+  document.getElementById('btnGrowl').addEventListener('click',()=>{ growl(); state.angry=true; setPressed(document.getElementById('chipAngry'), true); });
+  document.getElementById('btnReset').addEventListener('click',()=>{ state.angry=false; setPressed(document.getElementById('chipAngry'), false); });
+  document.getElementById('btnMoon').addEventListener('click',()=>{ state.moon=!state.moon; });
+  document.getElementById('btnDrool').addEventListener('click',()=>{ state.drool=!state.drool; });
+
+  // Typed speak
+  const txt=document.getElementById('transcript');
+  const persona=document.getElementById('persona');
+  document.getElementById('btnSay').addEventListener('click',()=>{ const t=txt.value.trim(); if(!t) return; const r=brain(t, persona.value==='auto'?null:persona.value); log('wolf', r.text); speak(r.text); mood(r.mood); });
+
+  // Avatars
+  const avWrap=document.getElementById('avatars');
+  function addAvatar(src){ const box=document.createElement('div'); box.className='avatar'; const img=document.createElement('img'); img.src=src; box.appendChild(img); const foot=document.createElement('footer'); const k=document.createElement('button');k.textContent='Kick'; const b=document.createElement('button');b.textContent='Ban'; foot.append(k,b); box.appendChild(foot); k.addEventListener('click',()=>scratch(box,'kick')); b.addEventListener('click',()=>scratch(box,'ban')); avWrap.appendChild(box); }
+  function scratch(box,type){ box.classList.add('scratched'); const verb=type==='ban'?'BANNED':'KICKED'; growl(520); log('wolf', verb+' — Marked by the claw.'); }
+  document.getElementById('fileAv').addEventListener('change',(e)=>{ [...e.target.files].forEach(f=>{ const r=new FileReader(); r.onload=ev=>addAvatar(ev.target.result); r.readAsDataURL(f); }); });
+  document.getElementById('btnDemoAv').addEventListener('click',()=>{ for(let i=0;i<8;i++){ const c=document.createElement('canvas'); c.width=220; c.height=220; const x=c.getContext('2d'); x.fillStyle=`hsl(${i*40+10} 70% 45%)`; x.fillRect(0,0,220,220); x.fillStyle='rgba(255,255,255,.82)'; x.font='bold 130px system-ui'; x.textAlign='center'; x.textBaseline='middle'; x.fillText(String.fromCharCode(65+i),110,115); addAvatar(c.toDataURL()); } });
+
+  // ==== Brain
+  const ROASTS=[
+    "You talk tough for someone who buffers on basic thoughts.",
+    "I’ve met campfire smoke with more clarity.",
+    "Relax, cub. You’re not built for this forest.",
+    "If swagger was signal, you’re on one bar and it’s 2G.",
+    "Your best take just tripped over its own tail."
+  ];
+  const SMOOTH=[
+    "Evening, queen. Moon’s bright but you outshine it — unfair.",
+    "If charm had ribs, I’d be handing you the last one.",
+    "I don’t chase — I orbit. But for you, I’ll adjust my gravity.",
+    "Tell the stars to sit down. You’re running the night."
+  ];
+  const CHILL=[
+    "Low lights, slow blues, no stress.",
+    "Slide me that vibe — I’ll keep it mellow.",
+    "We’re off the clock. Breathe in, let it ride."
+  ];
+  const FACTS=[
+    "Fact: Packs win on coordination. Same deal with people.",
+    "Quick tip: count to four on the inhale, six on the exhale — instant calm.",
+    "Real ones use their ears more than their teeth."
+  ];
+
+  function brain(input, forced){
+    const s=input.toLowerCase();
+    if(forced==='roast' || /\b(roast|ratio|flame|cook)\b/.test(s)) return {text: pick(ROASTS), mood:'roast'};
+    if(forced==='smooth' || /\b(hey ladies|smooth|flirt|queen|gorgeous|beautiful|shorty|shawty)\b/.test(s)) return {text: pick(SMOOTH), mood:'smooth'};
+    if(/\b(angry|mad|rage|fight|growl)\b/.test(s)) return {text:'You want smoke? Step careful.', mood:'angry'};
+    if(forced==='baked' || /\b(baked|high|stoned|chill)\b/.test(s)) return {text: pick(CHILL), mood:'baked'};
+    if(forced==='wise' || /\b(fact|teach|smart|advice|tip)\b/.test(s)) return {text: pick(FACTS), mood:'wise'};
+    if(/\b(kick|ban)\b/.test(s)) return {text:'Point to a face. I’ll handle the autographs.', mood:'angry'};
+    if(/\b(hello|hi|hey|sup|what’s up|whats up)\b/.test(s)) return {text:"Night’s young. Speak your piece.", mood:'calm'};
+    return {text:"Say less, howl more. I’m locked in.", mood:'calm'};
+  }
+  function mood(m){ if(m==='angry'){ state.angry=true; growl(); } if(m==='baked'){ state.baked=true; } state.talk=1; setTimeout(()=>state.talk=0,1200); }
+  function react(text){ const r=brain(text); log('wolf',r.text); speak(r.text); mood(r.mood); }
+  function pick(arr){ return arr[Math.floor(Math.random()*arr.length)]; }
+})();
+</script>
+</body>
+</html>

@@ -1,10 +1,6 @@
 @echo off
-title Jim Discord Bot Launcher
 echo Starting Jim Discord Bot with PostgreSQL...
 echo.
-
-REM Enable error handling - don't exit on errors, just show them
-setlocal enabledelayedexpansion
 
 REM Check for Python installation (Windows typically uses 'python' or 'py')
 python --version >nul 2>&1
@@ -31,9 +27,7 @@ if %errorlevel% equ 0 (
         echo ERROR: Python not found! 
         echo Please install Python 3.13.2 from https://www.python.org/downloads/
         echo Make sure to check "Add Python to PATH" during installation
-        echo.
-        echo Press any key to exit...
-        pause >nul
+        pause
         exit /b 1
     )
 )
@@ -46,9 +40,7 @@ if not exist .env (
     echo ERROR: .env file not found!
     echo Please create a .env file with your API keys and database configuration.
     echo You can copy .env.example and fill in your values.
-    echo.
-    echo Press any key to exit...
-    pause >nul
+    pause
     exit /b 1
 )
 
@@ -110,6 +102,4 @@ net stop postgresql-x64-16 >nul 2>&1
 net stop postgresql-16 >nul 2>&1
 net stop postgresql >nul 2>&1
 
-echo.
-echo Press any key to exit...
-pause >nul
+pause

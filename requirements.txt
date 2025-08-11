@@ -1,0 +1,7 @@
+discord.py
+langchain
+faiss-cpu
+psycopg2-binary
+flask
+python-dotenv
+openai

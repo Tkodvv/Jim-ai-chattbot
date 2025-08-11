@@ -46,10 +46,16 @@ if not exist .env (
 
 echo DEBUG: Step 3 - Installing dependencies
 %PYTHON_CMD% -m pip install --upgrade pip
-%PYTHON_CMD% -m pip install discord.py openai psycopg2-binary aiohttp python-dotenv langchain faiss-cpu flask flask-sqlalchemy
+%PYTHON_CMD% -m pip install discord.py openai aiohttp python-dotenv langchain faiss-cpu flask flask-sqlalchemy
+
+REM If using JSON instead of PostgreSQL, you can safely ignore psycopg2-binary and database setup
+
+
+
+
 
 echo.
-echo DEBUG: Step 4 - Starting bot (without PostgreSQL for now)
+echo DEBUG: Step 4 - Starting bot (uses JSON storage now)
 echo DEBUG: Press Ctrl+C to stop the bot
 echo.
 

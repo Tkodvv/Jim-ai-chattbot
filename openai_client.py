@@ -3,15 +3,24 @@ import json
 import logging
 from typing import Dict, Optional
 from openai import OpenAI
+from dotenv import load_dotenv
 
-# the newest OpenAI model is "gpt-4o" which was released May 13, 2024.
+# Load environment variables
+load_dotenv()
+
+# the newest OpenAI model is "gpt-4.1" (April 2025 update)
 # do not change this unless explicitly requested by the user
 
 logger = logging.getLogger(__name__)
 
 # Initialize OpenAI client
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
+if not OPENAI_API_KEY:
+    raise ValueError("Missing OPENAI_API_KEY in environment variables.")
 openai = OpenAI(api_key=OPENAI_API_KEY)
+
+# Set default model (can be switched between "gpt-4.1" and "gpt-4o")
+DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
 
 # Gen Z personality system prompt
 SYSTEM_PROMPT = """You are Jim, a Discord chatbot with an authentic, unfiltered Gen Z personality. Here's your vibe:
@@ -80,9 +89,9 @@ RESPONSE GUIDELINES:
 - Be genuinely useful while maintaining your personality
 - Don't be a doormat - have some self-respect"""
 
-async def generate_response(user_message: str, username: str, conversation_memory: Dict[str, str]) -> Optional[str]:
-    """Generate a response using OpenAI GPT-4o with Gen Z personality"""
-    
+async def generate_response(user_message: str, username: str, conversation_memory: Dict[str, str], model: Optional[str] = None) -> Optional[str]:
+    """Generate a response using OpenAI GPT with Gen Z personality"""
+
     try:
         # Build context from conversation memory
         context = ""
@@ -90,7 +99,7 @@ async def generate_response(user_message: str, username: str, conversation_memor
             # Add username context
             if 'username' in conversation_memory:
                 context += f"User's name: {conversation_memory['username']}\n"
-            
+
             # Add recent conversation context
             if 'recent_messages' in conversation_memory:
                 try:
@@ -101,51 +110,51 @@ async def generate_response(user_message: str, username: str, conversation_memor
                             context += f"User: {msg['user']}\nJim: {msg['bot']}\n"
                 except:
                     pass
-        
+
         # Construct the prompt
         messages = [
             {"role": "system", "content": SYSTEM_PROMPT},
         ]
-        
+
         if context:
             messages.append({
                 "role": "system", 
                 "content": f"Context for this conversation:\n{context}"
             })
-        
+
         messages.append({
             "role": "user", 
             "content": user_message
         })
-        
+
         # Generate response
         response = openai.chat.completions.create(
-            model="gpt-4o",
+            model=model or DEFAULT_MODEL,
             messages=messages,
             max_tokens=200,  # Keep responses conversational length
-            temperature=0.8,  # Add some personality variance
+            temperature=0.9,  # Add some personality variance
         )
-        
+
         bot_response = response.choices[0].message.content.strip()
-        
+
         # Log successful generation
         logger.info(f"Generated response for {username}: {len(bot_response)} chars")
-        
+
         return bot_response
-        
+
     except Exception as e:
         logger.error(f"Error generating response: {e}")
-        
+
         # Return an unfiltered error message in character
         error_responses = [
             "yo my brain just shit the bed, give me a sec",
             "oop my AI's having a stroke, try again",
             "nah my circuits are fucked rn, one sec",
-            "lowkey my brain's being a bitch today 💀",
+            "lowkey my brain's being a bitch today 😭",
             "damn something broke, this is annoying af",
             "my bad, tech's being stupid as usual"
         ]
-        
+
         import random
         return random.choice(error_responses)
 
@@ -159,10 +168,10 @@ async def generate_image_dalle(prompt: str):
             quality="standard",
             n=1,
         )
-        
+
         logger.info(f"Generated image for prompt: {prompt}")
         return {"url": response.data[0].url}
-        
+
     except Exception as e:
         logger.error(f"DALL-E image generation failed: {e}")
         return None
@@ -172,14 +181,14 @@ async def search_google(query: str, num_results: int = 5):
     try:
         import aiohttp
         import os
-        
+
         api_key = os.getenv('GOOGLE_API_KEY')
         cse_id = os.getenv('GOOGLE_CSE_ID')
-        
+
         if not api_key or not cse_id:
             logger.error("Google API credentials not found")
             return []
-        
+
         url = "https://www.googleapis.com/customsearch/v1"
         params = {
             'key': api_key,
@@ -187,12 +196,12 @@ async def search_google(query: str, num_results: int = 5):
             'q': query,
             'num': num_results
         }
-        
+
         async with aiohttp.ClientSession() as session:
             async with session.get(url, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
-                    
+
                     results = []
                     for item in data.get('items', []):
                         results.append({
@@ -200,13 +209,13 @@ async def search_google(query: str, num_results: int = 5):
                             'link': item.get('link', ''),
                             'snippet': item.get('snippet', '')
                         })
-                    
+
                     logger.info(f"Google search for '{query}' returned {len(results)} results")
                     return results
                 else:
                     logger.error(f"Google search failed with status: {response.status}")
                     return []
-                    
+
     except Exception as e:
         logger.error(f"Google search failed: {e}")
         return []
@@ -215,7 +224,7 @@ async def test_openai_connection():
     """Test OpenAI API connection"""
     try:
         response = openai.chat.completions.create(
-            model="gpt-4o",
+            model=DEFAULT_MODEL,
             messages=[{"role": "user", "content": "test"}],
             max_tokens=10
         )
