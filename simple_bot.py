@@ -131,6 +131,10 @@ class SimpleBotClass(commands.Bot):
         # Don't respond to bot's own messages
         if message.author == self.user:
             return
+
+        # NEW: ignore other bots and webhooks
+        if getattr(message.author, "bot", False) or message.webhook_id is not None:
+            return
         
         # Don't respond to DMs
         if isinstance(message.channel, discord.DMChannel):
