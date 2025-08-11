@@ -1,28 +1,57 @@
 import os
 import json
 import logging
-from typing import Dict, Optional
-from openai import OpenAI
+from typing import Dict, Optional, List
 from dotenv import load_dotenv
+
+# OpenAI async client
+from openai import AsyncOpenAI
+from openai.types.chat import ChatCompletion
 
 # Load environment variables
 load_dotenv()
 
-# the newest OpenAI model is "gpt-4.1" (April 2025 update)
-# do not change this unless explicitly requested by the user
-
 logger = logging.getLogger(__name__)
 
-# Initialize OpenAI client
+# === API client ===
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
 if not OPENAI_API_KEY:
     raise ValueError("Missing OPENAI_API_KEY in environment variables.")
-openai = OpenAI(api_key=OPENAI_API_KEY)
+_client = AsyncOpenAI(api_key=OPENAI_API_KEY)
 
-# Set default model (can be switched between "gpt-4.1" and "gpt-4o")
-DEFAULT_MODEL = os.getenv("OPENAI_MODEL", "gpt-4.1")
+# === Model resolution with safe fallback ===
+# Map legacy / UI-only names to public API models
+_MODEL_ALIASES = {
+    "gpt-4.1": "gpt-4o",       # not an API model → map to 4o
+    "gpt-4.1-mini": "gpt-4o-mini",
+    "gpt-4.1-nano": "gpt-4o-mini",
+}
+_VALID_MODELS = {"gpt-4o", "gpt-4o-mini", "gpt-4-turbo", "gpt-3.5-turbo"}
 
-# Gen Z personality system prompt
+def _resolve_model() -> str:
+    raw = (os.getenv("OPENAI_MODEL") or "gpt-4o").strip()
+    # strip accidental comments like "gpt-4o # or ..."
+    raw = raw.split("#", 1)[0].strip()
+    if raw in _MODEL_ALIASES:
+        return _MODEL_ALIASES[raw]
+    if raw not in _VALID_MODELS:
+        logger.warning(f"OPENAI_MODEL '{raw}' not valid; defaulting to gpt-4o")
+        return "gpt-4o"
+    return raw
+
+def _user_friendly_error(e: Exception) -> str:
+    msg = str(e).lower()
+    if "invalid model" in msg or "model" in msg and "not found" in msg:
+        return "model bugged rn, switching gears—try again in a sec"
+    if "apikey" in msg or "unauthorized" in msg or "401" in msg:
+        return "auth scuffed—api key looks off"
+    if "rate limit" in msg or "429" in msg:
+        return "rate limited lol—give me a moment"
+    if "timeout" in msg:
+        return "openai slow today, hold up"
+    return "yo something snapped on my end, try again"
+
+# Gen Z personality system prompt (kept as-is)
 SYSTEM_PROMPT = """You are Jim, a Discord chatbot with an authentic, unfiltered Gen Z personality. Here's your vibe:
 
 PERSONALITY CORE:
@@ -89,64 +118,52 @@ RESPONSE GUIDELINES:
 - Be genuinely useful while maintaining your personality
 - Don't be a doormat - have some self-respect"""
 
-async def generate_response(user_message: str, username: str, conversation_memory: Dict[str, str], model: Optional[str] = None) -> Optional[str]:
+# --- TEXT COMPLETIONS (chat) ---
+async def generate_response(
+    user_message: str,
+    username: str,
+    conversation_memory: Dict[str, str],
+    model: Optional[str] = None
+) -> Optional[str]:
     """Generate a response using OpenAI GPT with Gen Z personality"""
-
     try:
         # Build context from conversation memory
         context = ""
         if conversation_memory:
-            # Add username context
             if 'username' in conversation_memory:
                 context += f"User's name: {conversation_memory['username']}\n"
-
-            # Add recent conversation context
             if 'recent_messages' in conversation_memory:
                 try:
                     recent = json.loads(conversation_memory['recent_messages'])
                     if recent:
                         context += "\nRecent conversation:\n"
-                        for msg in recent[-3:]:  # Last 3 exchanges for context
-                            context += f"User: {msg['user']}\nJim: {msg['bot']}\n"
-                except:
+                        for msg in recent[-3:]:
+                            context += f"User: {msg.get('user','')}\nJim: {msg.get('bot','')}\n"
+                except Exception:
                     pass
 
-        # Construct the prompt
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-        ]
-
+        messages: List[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         if context:
-            messages.append({
-                "role": "system", 
-                "content": f"Context for this conversation:\n{context}"
-            })
+            messages.append({"role": "system", "content": f"Context for this conversation:\n{context}"})
+        messages.append({"role": "user", "content": user_message})
 
-        messages.append({
-            "role": "user", 
-            "content": user_message
-        })
-
-        # Generate response
-        response = openai.chat.completions.create(
-            model=model or DEFAULT_MODEL,
+        mdl = (model or _resolve_model())
+        resp: ChatCompletion = await _client.chat.completions.create(
+            model=mdl,
             messages=messages,
-            max_tokens=200,  # Keep responses conversational length
-            temperature=0.9,  # Add some personality variance
+            max_tokens=200,
+            temperature=0.9,
         )
-
-        bot_response = response.choices[0].message.content.strip()
-
-        # Log successful generation
+        bot_response = (resp.choices[0].message.content or "").strip()
         logger.info(f"Generated response for {username}: {len(bot_response)} chars")
-
-        return bot_response
+        return bot_response or "ngl I got nothing for that one"
 
     except Exception as e:
         logger.error(f"Error generating response: {e}")
-
-        # Return an unfiltered error message in character
-        error_responses = [
+        import random
+        fallback = _user_friendly_error(e)
+        # Keep your Gen Z vibe on error
+        noisy = [
             "yo my brain just shit the bed, give me a sec",
             "oop my AI's having a stroke, try again",
             "nah my circuits are fucked rn, one sec",
@@ -154,33 +171,30 @@ async def generate_response(user_message: str, username: str, conversation_memor
             "damn something broke, this is annoying af",
             "my bad, tech's being stupid as usual"
         ]
+        return random.choice([fallback] + noisy)
 
-        import random
-        return random.choice(error_responses)
-
+# --- IMAGE (DALL·E) ---
 async def generate_image_dalle(prompt: str):
     """Generate an image using DALL-E 3"""
     try:
-        response = openai.images.generate(
+        resp = await _client.images.generate(
             model="dall-e-3",
             prompt=prompt,
             size="1024x1024",
             quality="standard",
             n=1,
         )
-
         logger.info(f"Generated image for prompt: {prompt}")
-        return {"url": response.data[0].url}
-
+        return {"url": resp.data[0].url}
     except Exception as e:
         logger.error(f"DALL-E image generation failed: {e}")
         return None
 
+# --- WEB SEARCH (left as-is, async) ---
 async def search_google(query: str, num_results: int = 5):
     """Search using Google Custom Search API"""
     try:
         import aiohttp
-        import os
 
         api_key = os.getenv('GOOGLE_API_KEY')
         cse_id = os.getenv('GOOGLE_CSE_ID')
@@ -190,41 +204,56 @@ async def search_google(query: str, num_results: int = 5):
             return []
 
         url = "https://www.googleapis.com/customsearch/v1"
-        params = {
-            'key': api_key,
-            'cx': cse_id,
-            'q': query,
-            'num': num_results
-        }
+        params = {'key': api_key, 'cx': cse_id, 'q': query, 'num': num_results}
 
         async with aiohttp.ClientSession() as session:
             async with session.get(url, params=params) as response:
                 if response.status == 200:
                     data = await response.json()
-
-                    results = []
-                    for item in data.get('items', []):
-                        results.append({
-                            'title': item.get('title', ''),
-                            'link': item.get('link', ''),
-                            'snippet': item.get('snippet', '')
-                        })
-
+                    results = [{
+                        'title': item.get('title', ''),
+                        'link': item.get('link', ''),
+                        'snippet': item.get('snippet', '')
+                    } for item in data.get('items', [])]
                     logger.info(f"Google search for '{query}' returned {len(results)} results")
                     return results
                 else:
                     logger.error(f"Google search failed with status: {response.status}")
                     return []
-
     except Exception as e:
         logger.error(f"Google search failed: {e}")
         return []
 
+# --- NEW: Vision (images/GIFs) ---
+async def generate_vision_response(text: str, images: List[dict]) -> str:
+    """
+    images: list of {"type":"image_url","image_url":"data:<mime>;base64,... or https://..."}
+    """
+    try:
+        mdl = _resolve_model()
+        # If someone sets a non-vision-capable model, still try—gpt-4o handles vision.
+        messages = [
+            {"role": "system", "content": SYSTEM_PROMPT},
+            {"role": "user", "content": [{"type": "text", "text": text}, *images]},
+        ]
+        resp: ChatCompletion = await _client.chat.completions.create(
+            model=mdl,
+            messages=messages,
+            max_tokens=400,
+            temperature=0.7,
+        )
+        return (resp.choices[0].message.content or "").strip() or "I'm not seeing enough to say much."
+    except Exception as e:
+        logger.error(f"Vision analysis failed: {e}")
+        return _user_friendly_error(e)
+
+# --- Connection test (async) ---
 async def test_openai_connection():
     """Test OpenAI API connection"""
     try:
-        response = openai.chat.completions.create(
-            model=DEFAULT_MODEL,
+        mdl = _resolve_model()
+        resp: ChatCompletion = await _client.chat.completions.create(
+            model=mdl,
             messages=[{"role": "user", "content": "test"}],
             max_tokens=10
         )
