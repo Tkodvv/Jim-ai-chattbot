@@ -29,10 +29,13 @@ IMAGE_EXTS = (".png", ".jpg", ".jpeg", ".webp", ".gif", ".bmp")
 
 class SimpleBotClass(commands.Bot):
     # memory guardrails
-    MAX_USERS_TRACKED = 500            # cap size of the interaction map
-    INTERACTION_TTL_SECONDS = 3600     # prune entries older than 1h
-    MAX_USER_TEXT = 3000               # clamp text sent to OpenAI
-    MAX_RECENT_EXCHANGES = 6           # keep shorter convo context in DB
+    MAX_USERS_TRACKED = 500
+    INTERACTION_TTL_SECONDS = 3600
+    MAX_USER_TEXT = 3000
+    MAX_RECENT_EXCHANGES = 6
+
+    # recent conversation window (seconds) – images only respond within this or if addressed directly
+    RECENT_WINDOW_SECONDS = int(os.getenv("JIM_RECENT_WINDOW", "60"))
 
     def __init__(self):
         intents = discord.Intents.default()
@@ -63,8 +66,6 @@ class SimpleBotClass(commands.Bot):
         logger.info("Tkodv's slave is running")
         logger.info(f'{self.user} has connected to Discord!')
         logger.info(f'Bot is in {len(self.guilds)} guilds')
-        
-        # List loaded commands
         logger.info(f"Loaded commands: {[cmd.name for cmd in self.commands]}")
 
         # light background janitor
@@ -105,8 +106,7 @@ class SimpleBotClass(commands.Bot):
                     url_candidates.append(emb.url)
 
                 for u in url_candidates:
-                    lu = u.lower()
-                    if lu.endswith(IMAGE_EXTS):
+                    if u.lower().endswith(IMAGE_EXTS):
                         contents.append({"type": "image_url", "image_url": {"url": u}})
             except Exception:
                 pass
@@ -132,7 +132,7 @@ class SimpleBotClass(commands.Bot):
         if message.author == self.user:
             return
 
-        # NEW: ignore other bots and webhooks
+        # Ignore other bots and webhooks
         if getattr(message.author, "bot", False) or message.webhook_id is not None:
             return
         
@@ -147,85 +147,90 @@ class SimpleBotClass(commands.Bot):
         # prune house-keeping
         self._prune_interactions()
         
-        should_respond = False
         user_id = message.author.id
         current_time = datetime.utcnow()
 
-        # check for images/GIFs
+        # --- address checks ---
+        content_lower = (message.content or "").lower()
+        said_jim = "jim" in content_lower
+        mentioned_bot = any(getattr(m, "id", None) == self.user.id for m in getattr(message, "mentions", []))
+        is_reply_to_bot = (
+            message.reference is not None
+            and isinstance(message.reference.resolved, discord.Message)
+            and getattr(message.reference.resolved.author, "id", None) == self.user.id
+        )
+        is_addressed = said_jim or mentioned_bot or is_reply_to_bot
+
+        recent = False
+        if user_id in self.user_interactions:
+            last = self.user_interactions[user_id]
+            recent = (current_time - last) <= timedelta(seconds=self.RECENT_WINDOW_SECONDS)
+
+        # check for images/GIFs (we only respond if addressed/recent)
         image_contents = await self._collect_image_contents(message)
         has_images = len(image_contents) > 0
-        
-        # Check if "jim" is mentioned (case insensitive)
-        if "jim" in (message.content or "").lower():
-            should_respond = True
-            logger.info(f"Jim mentioned by {message.author.name}")
-        
-        # Check if user interacted within last 60 seconds
-        if user_id in self.user_interactions:
-            last_interaction = self.user_interactions[user_id]
-            if current_time - last_interaction <= timedelta(seconds=60):
-                should_respond = True
-                logger.info(f"Recent interaction from {message.author.name}")
 
-        # If images present, respond even without mention/recent chat
-        if has_images:
-            should_respond = True
-            logger.info(f"Images detected from {message.author.name} (count={len(image_contents)})")
+        # Decide whether to respond (images alone don't trigger)
+        should_respond = is_addressed or recent
+        if not should_respond:
+            # still process any prefix commands
+            await self.process_commands(message)
+            return
         
-        if should_respond:
-            # Add user to processing set to prevent spam
-            self.processing_users.add(user_id)
+        # Add user to processing set to prevent spam
+        self.processing_users.add(user_id)
+        
+        try:
+            # Update interaction time
+            self.user_interactions[user_id] = current_time
             
-            try:
-                # Update interaction time
-                self.user_interactions[user_id] = current_time
+            # Show typing indicator
+            async with message.channel.typing():
+                # Add natural delay
+                typing_delay = random.uniform(1.0, 3.0)
+                await asyncio.sleep(typing_delay)
                 
-                # Show typing indicator
-                async with message.channel.typing():
-                    # Add natural delay
-                    typing_delay = random.uniform(1.0, 3.0)
-                    await asyncio.sleep(typing_delay)
-                    
-                    # Get user memory
-                    conversation_memory = await self.get_user_memory(user_id)
-                    
-                    # Generate response
-                    if has_images and HAS_VISION:
-                        user_prompt = (message.content or "").strip() or "Analyze these images/GIFs and describe what's going on."
-                        response = await generate_vision_response(
-                            text=user_prompt,
-                            images=image_contents  # [{"type":"image_url","image_url":{"url":...}}, ...]
-                        )
-                    else:
-                        # Clamp text size to keep tokens/memory sane
-                        text = (message.content or "")[:self.MAX_USER_TEXT]
-                        response = await generate_response(
-                            text, 
-                            message.author.name, 
-                            conversation_memory
-                        )
-                    
-                    # Update user memory
-                    await self.update_user_memory(
-                        user_id, 
-                        message.content if message.content else "[image message]", 
-                        response if response else "",
-                        message.author.name
+                # Get user memory
+                conversation_memory = await self.get_user_memory(user_id)
+                
+                # Generate response
+                if has_images and HAS_VISION:
+                    logger.info(f"Images detected from {message.author.name} (count={len(image_contents)})")
+                    user_prompt = (message.content or "").strip() or "Analyze these images/GIFs and describe what's going on."
+                    response = await generate_vision_response(
+                        text=user_prompt,
+                        images=image_contents
+                    )
+                else:
+                    # Clamp text size to keep tokens/memory sane
+                    text = (message.content or "")[:self.MAX_USER_TEXT]
+                    response = await generate_response(
+                        text, 
+                        message.author.name, 
+                        conversation_memory
                     )
                 
-                # Send response with reply
-                if response:
-                    await message.reply(response, mention_author=False)
-                    
-            except Exception as e:
-                logger.error(f"Error processing message: {e}")
-                try:
-                    await message.reply("yo my bad, something went wrong lol")
-                except Exception:
-                    pass
-            finally:
-                # Remove user from processing set
-                self.processing_users.discard(user_id)
+                # Update user memory
+                await self.update_user_memory(
+                    user_id, 
+                    message.content if message.content else "[image message]", 
+                    response if response else "",
+                    message.author.name
+                )
+            
+            # Send response with reply
+            if response:
+                await message.reply(response, mention_author=False)
+                
+        except Exception as e:
+            logger.error(f"Error processing message: {e}")
+            try:
+                await message.reply("yo my bad, something went wrong lol")
+            except Exception:
+                pass
+        finally:
+            # Remove user from processing set
+            self.processing_users.discard(user_id)
         
         # Process commands
         await self.process_commands(message)
@@ -285,7 +290,7 @@ class SimpleBotClass(commands.Bot):
                 if recent_messages:
                     try:
                         messages = json.loads(recent_messages.value)
-                    except:
+                    except Exception:
                         messages = []
                 else:
                     messages = []
@@ -316,7 +321,7 @@ class SimpleBotClass(commands.Bot):
             logger.error(f"Error updating user memory: {e}")
             try:
                 db.session.rollback()
-            except:
+            except Exception:
                 pass
 
 # Commands
