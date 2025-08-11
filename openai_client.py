@@ -41,7 +41,7 @@ def _resolve_model() -> str:
 
 def _user_friendly_error(e: Exception) -> str:
     msg = str(e).lower()
-    if "invalid model" in msg or "model" in msg and "not found" in msg:
+    if "invalid model" in msg or ("model" in msg and "not found" in msg):
         return "model bugged rn, switching gears—try again in a sec"
     if "apikey" in msg or "unauthorized" in msg or "401" in msg:
         return "auth scuffed—api key looks off"
@@ -118,7 +118,7 @@ RESPONSE GUIDELINES:
 - Be genuinely useful while maintaining your personality
 - Don't be a doormat - have some self-respect"""
 
-# --- TEXT COMPLETIONS (chat) ---
+# ---------------- TEXT COMPLETIONS ----------------
 async def generate_response(
     user_message: str,
     username: str,
@@ -162,7 +162,6 @@ async def generate_response(
         logger.error(f"Error generating response: {e}")
         import random
         fallback = _user_friendly_error(e)
-        # Keep your Gen Z vibe on error
         noisy = [
             "yo my brain just shit the bed, give me a sec",
             "oop my AI's having a stroke, try again",
@@ -173,7 +172,7 @@ async def generate_response(
         ]
         return random.choice([fallback] + noisy)
 
-# --- IMAGE (DALL·E) ---
+# ---------------- IMAGE (DALL·E) ----------------
 async def generate_image_dalle(prompt: str):
     """Generate an image using DALL-E 3"""
     try:
@@ -190,7 +189,7 @@ async def generate_image_dalle(prompt: str):
         logger.error(f"DALL-E image generation failed: {e}")
         return None
 
-# --- WEB SEARCH (left as-is, async) ---
+# ---------------- WEB SEARCH ----------------
 async def search_google(query: str, num_results: int = 5):
     """Search using Google Custom Search API"""
     try:
@@ -224,21 +223,43 @@ async def search_google(query: str, num_results: int = 5):
         logger.error(f"Google search failed: {e}")
         return []
 
-# --- NEW: Vision (images/GIFs) ---
+# ---------------- VISION (images/GIFs) ----------------
+def _normalize_image_blocks(images: List[dict]) -> List[dict]:
+    """Ensure each image block is {'type':'image_url','image_url': {'url': '...'}}"""
+    norm: List[dict] = []
+    for item in images or []:
+        if not isinstance(item, dict):
+            continue
+        if item.get("type") != "image_url":
+            continue
+        iu = item.get("image_url")
+        if isinstance(iu, str):
+            norm.append({"type": "image_url", "image_url": {"url": iu}})
+        elif isinstance(iu, dict) and "url" in iu:
+            norm.append({"type": "image_url", "image_url": {"url": iu["url"]}})
+        # else: skip malformed
+    return norm
+
 async def generate_vision_response(text: str, images: List[dict]) -> str:
     """
-    images: list of {"type":"image_url","image_url":"data:<mime>;base64,... or https://..."}
+    Accepts images like:
+      [{'type':'image_url','image_url':'data:...'}]  OR
+      [{'type':'image_url','image_url':{'url':'https://...'}}]
     """
     try:
         mdl = _resolve_model()
-        # If someone sets a non-vision-capable model, still try—gpt-4o handles vision.
-        messages = [
-            {"role": "system", "content": SYSTEM_PROMPT},
-            {"role": "user", "content": [{"type": "text", "text": text}, *images]},
-        ]
+        image_blocks = _normalize_image_blocks(images)
+
+        # Build content: text first, then image blocks
+        content = [{"type": "text", "text": text or "Analyze the image(s) and describe what's going on."}]
+        content.extend(image_blocks)
+
         resp: ChatCompletion = await _client.chat.completions.create(
             model=mdl,
-            messages=messages,
+            messages=[
+                {"role": "system", "content": SYSTEM_PROMPT},
+                {"role": "user",   "content": content},
+            ],
             max_tokens=400,
             temperature=0.7,
         )
@@ -247,12 +268,12 @@ async def generate_vision_response(text: str, images: List[dict]) -> str:
         logger.error(f"Vision analysis failed: {e}")
         return _user_friendly_error(e)
 
-# --- Connection test (async) ---
+# ---------------- Connection Test ----------------
 async def test_openai_connection():
     """Test OpenAI API connection"""
     try:
         mdl = _resolve_model()
-        resp: ChatCompletion = await _client.chat.completions.create(
+        _ = await _client.chat.completions.create(
             model=mdl,
             messages=[{"role": "user", "content": "test"}],
             max_tokens=10
